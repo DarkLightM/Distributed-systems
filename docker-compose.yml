@@ -1,23 +1,82 @@
 version: "3.9"
 services:
-  web:
-    build: .
-    ports:
-      - "8080:8000"
+  web_1:
+    build: app/.
+    restart: on-failure
     depends_on:
+      - db
+    links:
       - db
     environment:
       DATABASE_URL: postgresql://user:123@db/db
+      NAME: web_1
+      RABBITMQ_URL: amqp://user:123@rabbit:5672/%2F
+      QUEUE_NAME: links
+  web_2:
+    build: app/.
+    restart: on-failure
+    depends_on:
+      - db
+    links:
+      - db
+    environment:
+      DATABASE_URL: postgresql://user:123@db/db
+      NAME: web_2
+      RABBITMQ_URL: amqp://user:123@rabbit:5672/%2F
+      QUEUE_NAME: links
+  loader:
+    build: loader/.
+    restart: on-failure
+    depends_on:
+      - rabbit
+      - nginx
+      - redis
+    links:
+      - rabbit
+      - nginx
+      - redis
+    environment:
+      QUEUE_NAME: links
+      RABBITMQ_URL: amqp://user:123@rabbit:5672/%2F
+      WEB_BASE_URL: http://nginx:80
+      CACHE_HOST: redis
   db:
     image: postgres
     restart: always
     ports:
       - "15432:5432"
     environment:
+      POSTGRES_URL: postgresql://user:123@db/db
       POSTGRES_PASSWORD: 123
       POSTGRES_USER: user
       POSTGRES_DB: db
     volumes:
       - "dbdata:/var/lib/postgresql/data"
+  rabbit:
+    image: rabbitmq:management
+    hostname: rabbit
+    ports:
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: user
+      RABBITMQ_DEFAULT_PASS: 123
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:15672" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+  nginx:
+    build: nginx/.
+    ports:
+      - "8080:80"
+    depends_on:
+      - web_1
+      - web_2
+    links:
+      - web_1
+      - web_2
+  redis:
+    image: redis
+
 volumes:
   dbdata:
